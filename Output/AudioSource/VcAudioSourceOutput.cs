@@ -1,4 +1,4 @@
-// Influenced by: https://github.com/adrenak/univoice-audiosource-output/blob/master/Assets/Adrenak.UniVoice.AudioSourceOutput/Runtime/UniVoiceAudioSourceOutput.cs
+﻿// Influenced by: https://github.com/adrenak/univoice-audiosource-output/blob/master/Assets/Adrenak.UniVoice.AudioSourceOutput/Runtime/UniVoiceAudioSourceOutput.cs
 
 using UnityEngine;
 
@@ -234,7 +234,10 @@ namespace MetaVoiceChat.Output.AudioSource
 
         private void OnDestroy()
         {
-            vcAudioClip.Dispose();
+            if (vcAudioClip != null)
+            {
+                vcAudioClip.Dispose();
+            }
         }
     }
 }
