@@ -1,4 +1,4 @@
-// This project referenced the following projects in its beginnings, which were created by Vatsal Ambastha:
+﻿// This project referenced the following projects in its beginnings, which were created by Vatsal Ambastha:
 // https://github.com/adrenak/univoice
 // https://github.com/adrenak/univoice-unimic-input
 // https://github.com/adrenak/unimic
@@ -38,6 +38,16 @@ namespace MetaVoiceChat
         public float maxCodecMilliseconds = 50;
         [Tooltip("This allows multiple codec time overrun warnings per frame.")]
         public bool allowMultipleCodecWarningsPerFrame;
+
+        /// <summary>
+        /// The disable receive frame
+        /// </summary>
+        public bool disableReceiveFrame = true;
+
+        /// <summary>
+        /// The disable send frame
+        /// </summary>
+        public bool disableSendFrame = true;
 
         [Header("Serializable Reactive Properties")]
 
@@ -97,6 +107,11 @@ namespace MetaVoiceChat
 
         private void SendFrame(int index, float[] samples)
         {
+            if (this.disableSendFrame)
+            {
+                return;
+            }
+
             if (samples != null && isSineOverrideEnabled)
             {
                 const float Amplitude = 0.2f;
@@ -162,6 +177,11 @@ namespace MetaVoiceChat
 
         public void ReceiveFrame(int index, double timestamp, float additionalLatency, ReadOnlySpan<byte> data)
         {
+            if (this.disableReceiveFrame)
+            {
+                return;
+            }
+
             float targetLatency = (config.secondsPerFrame * config.outputMinBufferSize) + Time.deltaTime + additionalLatency;
 
             if (!isLocalPlayer)
