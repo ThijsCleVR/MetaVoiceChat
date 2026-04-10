@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Linq;
 using UnityEngine;
@@ -120,46 +120,66 @@ namespace MetaVoiceChat.Input.Mic
 
         private IEnumerator CoRecord()
         {
-            int i = 0;
-            int readAbsPos = 0;
-            int prevPos = 0;
-            float[] samples = new float[samplesPerFrame];
+            AudioClip clip = AudioClip;
+            string device = ActiveDevice;
 
-            while (AudioClip != null && Microphone.IsRecording(ActiveDevice))
+            if (clip == null)
+                yield break;
+
+            int clipSampleCount = clip.samples;
+            int frameSampleCount = samplesPerFrame;
+
+            if (frameSampleCount <= 0 || frameSampleCount > clipSampleCount)
             {
-                bool isNewDataAvailable = true;
+                StopRecording();
+                yield break;
+            }
 
-                while (isNewDataAvailable)
+            float[] frameBuffer = new float[frameSampleCount];
+
+            int wrapCount = 0;
+            int prevMicPos = 0;
+            int readAbsPos = 0;
+
+            // Tune this based on how much main-thread time you can spend per frame.
+            const int MaxFramesPerTick = 8;
+
+            while (AudioClip != null && Microphone.IsRecording(device))
+            {
+                int micPos = Microphone.GetPosition(device);
+
+                if (micPos < prevMicPos)
+                    wrapCount++;
+
+                prevMicPos = micPos;
+
+                int writeAbsPos = (wrapCount * clipSampleCount) + micPos;
+                int availableSamples = writeAbsPos - readAbsPos;
+
+                if (availableSamples >= frameSampleCount)
                 {
-                    int currPos = Microphone.GetPosition(ActiveDevice);
-                    if (currPos < prevPos)
+                    int framesReady = availableSamples / frameSampleCount;
+
+                    // If we fell too far behind, drop older frames instead of stalling the main thread.
+                    if (framesReady > MaxFramesPerTick)
                     {
-                        i++;
+                        framesReady = MaxFramesPerTick;
+                        readAbsPos = writeAbsPos - (framesReady * frameSampleCount);
+
+                        // Keep alignment stable.
+                        readAbsPos -= readAbsPos % frameSampleCount;
                     }
 
-                    prevPos = currPos;
+                    var frameReady = OnFrameReady;
 
-                    int currAbsPos = i * AudioClip.samples + currPos;
-                    int nextReadAbsPos = readAbsPos + samples.Length;
-
-                    if (nextReadAbsPos < currAbsPos)
+                    for (int n = 0; n < framesReady; n++)
                     {
-                        // A possible optimization is to allocate a larger fixed sized pooled array
-                        // Allocate the array size by the number of samples that are ready to read
-                        // Read these all at once instead of using multiple AudioClip.GetData() calls
+                        int readOffset = readAbsPos % clipSampleCount;
 
-                        int offsetSamples = readAbsPos % AudioClip.samples;
-                        AudioClip.GetData(samples, offsetSamples);
+                        clip.GetData(frameBuffer, readOffset);
+                        frameReady?.Invoke(NextFrameIndex, frameBuffer);
 
-                        int index = NextFrameIndex;
-                        OnFrameReady?.Invoke(index, samples);
-
-                        readAbsPos = nextReadAbsPos;
-                        isNewDataAvailable = true;
-                    }
-                    else
-                    {
-                        isNewDataAvailable = false;
+                        readAbsPos += frameSampleCount;
                     }
                 }
 
@@ -168,6 +188,99 @@ namespace MetaVoiceChat.Input.Mic
 
             StopRecording();
         }
+
+        //private IEnumerator CoRecord()
+        //{
+        //    int wrapCount = 0;
+        //    int readAbsPos = 0;
+        //    int prevPos = 0;
+        //    float[] samples = new float[samplesPerFrame];
+
+        //    while (AudioClip != null && Microphone.IsRecording(ActiveDevice))
+        //    {
+        //        int currPos = Microphone.GetPosition(ActiveDevice);
+
+        //        if (currPos < prevPos)
+        //        {
+        //            wrapCount++;
+        //        }
+
+        //        prevPos = currPos;
+
+        //        int currAbsPos = (wrapCount * AudioClip.samples) + currPos;
+
+        //        // Optional safety cap so one frame cannot spend forever catching up
+        //        int maxFramesToProcessThisTick = 4;
+        //        int processed = 0;
+
+        //        while (processed < maxFramesToProcessThisTick &&
+        //               readAbsPos + samples.Length < currAbsPos)
+        //        {
+        //            int offsetSamples = readAbsPos % AudioClip.samples;
+        //            AudioClip.GetData(samples, offsetSamples);
+
+        //            OnFrameReady?.Invoke(NextFrameIndex, samples);
+
+        //            readAbsPos += samples.Length;
+        //            processed++;
+        //        }
+
+        //        yield return null;
+        //    }
+
+        //    StopRecording();
+        //}
+
+        //private IEnumerator CoRecord()
+        //{
+        //    int i = 0;
+        //    int readAbsPos = 0;
+        //    int prevPos = 0;
+        //    float[] samples = new float[samplesPerFrame];
+
+        //    while (AudioClip != null && Microphone.IsRecording(ActiveDevice))
+        //    {
+        //        bool isNewDataAvailable = true;
+
+        //        while (isNewDataAvailable)
+        //        {
+        //            int currPos = Microphone.GetPosition(ActiveDevice);
+        //            if (currPos < prevPos)
+        //            {
+        //                i++;
+        //            }
+
+        //            prevPos = currPos;
+
+        //            int currAbsPos = i * AudioClip.samples + currPos;
+        //            int nextReadAbsPos = readAbsPos + samples.Length;
+
+        //            if (nextReadAbsPos < currAbsPos)
+        //            {
+        //                // A possible optimization is to allocate a larger fixed sized pooled array
+        //                // Allocate the array size by the number of samples that are ready to read
+        //                // Read these all at once instead of using multiple AudioClip.GetData() calls
+
+        //                int offsetSamples = readAbsPos % AudioClip.samples;
+        //                AudioClip.GetData(samples, offsetSamples);
+
+        //                int index = NextFrameIndex;
+        //                OnFrameReady?.Invoke(index, samples);
+
+        //                readAbsPos = nextReadAbsPos;
+        //                isNewDataAvailable = true;
+        //            }
+        //            else
+        //            {
+        //                isNewDataAvailable = false;
+        //            }
+        //        }
+
+        //        yield return null;
+        //    }
+
+        //    StopRecording();
+        //}
 
         public void Dispose()
         {
