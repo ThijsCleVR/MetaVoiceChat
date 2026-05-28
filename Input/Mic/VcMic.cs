@@ -18,8 +18,7 @@ namespace MetaVoiceChat.Input.Mic
         public string SelectedDevice { get; private set; } = null;
         public string ActiveDevice { get; private set; } = null;
 
-        private int nextFrameIndex = 0;
-        private int NextFrameIndex => nextFrameIndex++;
+        private int currentFrameIndex = 0;
 
         private Coroutine recordCoroutine;
 
@@ -120,73 +119,75 @@ namespace MetaVoiceChat.Input.Mic
 
         private IEnumerator CoRecord()
         {
-            AudioClip clip = AudioClip;
-            string device = ActiveDevice;
+            AudioClip clip = this.AudioClip;
+            string device = this.ActiveDevice;
 
             if (clip == null)
-                yield break;
-
-            int clipSampleCount = clip.samples;
-            int frameSampleCount = samplesPerFrame;
-
-            if (frameSampleCount <= 0 || frameSampleCount > clipSampleCount)
             {
-                StopRecording();
                 yield break;
             }
 
-            float[] frameBuffer = new float[frameSampleCount];
+            int clipSampleCount = clip.samples;
+
+            if (this.samplesPerFrame <= 0 || this.samplesPerFrame > clipSampleCount)
+            {
+                this.StopRecording();
+                yield break;
+            }
+
+            float[] frameBuffer = new float[this.samplesPerFrame];
 
             int wrapCount = 0;
             int prevMicPos = 0;
-            int readAbsPos = 0;
+            int readAbsPos = Microphone.GetPosition(device);
 
             // Tune this based on how much main-thread time you can spend per frame.
             const int MaxFramesPerTick = 8;
 
-            while (AudioClip != null && Microphone.IsRecording(device))
+            while (this.AudioClip != null && Microphone.IsRecording(device))
             {
                 int micPos = Microphone.GetPosition(device);
 
                 if (micPos < prevMicPos)
+                {
                     wrapCount++;
+                }
 
                 prevMicPos = micPos;
 
                 int writeAbsPos = (wrapCount * clipSampleCount) + micPos;
-                int availableSamples = writeAbsPos - readAbsPos;
+                int unreadSampleCount = writeAbsPos - readAbsPos;
 
-                if (availableSamples >= frameSampleCount)
+                if (unreadSampleCount >= this.samplesPerFrame)
                 {
-                    int framesReady = availableSamples / frameSampleCount;
+                    int framesReady = unreadSampleCount / this.samplesPerFrame;
 
                     // If we fell too far behind, drop older frames instead of stalling the main thread.
                     if (framesReady > MaxFramesPerTick)
                     {
                         framesReady = MaxFramesPerTick;
-                        readAbsPos = writeAbsPos - (framesReady * frameSampleCount);
+                        readAbsPos = writeAbsPos - (framesReady * this.samplesPerFrame);
 
                         // Keep alignment stable.
-                        readAbsPos -= readAbsPos % frameSampleCount;
+                        readAbsPos -= readAbsPos % this.samplesPerFrame;
                     }
-
-                    var frameReady = OnFrameReady;
 
                     for (int n = 0; n < framesReady; n++)
                     {
                         int readOffset = readAbsPos % clipSampleCount;
 
                         clip.GetData(frameBuffer, readOffset);
-                        frameReady?.Invoke(NextFrameIndex, frameBuffer);
+                        this.OnFrameReady?.Invoke(this.currentFrameIndex, frameBuffer);
+                        this.currentFrameIndex++;
 
-                        readAbsPos += frameSampleCount;
+                        readAbsPos += this.samplesPerFrame;
                     }
                 }
 
                 yield return null;
             }
 
-            StopRecording();
+            this.StopRecording();
         }
 
         //private IEnumerator CoRecord()
